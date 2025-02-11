@@ -549,7 +549,7 @@ struct AboutView: View {
             List {
                 Section {
                     Button(action: {
-                        if let url = URL(string: "https://fintrack.com/privacy") {
+                        if let url = URL(string: "https://cankatcaglar.github.io/FinanceApp/privacy-policy.html") {
                             openURL(url)
                         }
                     }) {
@@ -563,7 +563,7 @@ struct AboutView: View {
                     }
                     
                     Button(action: {
-                        if let url = URL(string: "https://fintrack.com/terms") {
+                        if let url = URL(string: "https://cankatcaglar.github.io/FinanceApp/terms-of-use.html") {
                             openURL(url)
                         }
                     }) {
@@ -577,7 +577,7 @@ struct AboutView: View {
                     }
                     
                     Button(action: {
-                        if let url = URL(string: "https://fintrack.com/support") {
+                        if let url = URL(string: "https://cankatcaglar.github.io/FinanceApp/support.html") {
                             openURL(url)
                         }
                     }) {

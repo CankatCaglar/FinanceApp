@@ -26,7 +26,11 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         print("📱 FCM token received: \(fcmToken ?? "nil")")
-        guard let token = fcmToken else { return }
+        print("📱 Debug - Current Auth User: \(Auth.auth().currentUser?.uid ?? "no user")")
+        guard let token = fcmToken else {
+            print("❌ Debug - No FCM token available")
+            return
+        }
         updateFCMToken(token)
     }
     
@@ -42,10 +46,15 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
                 try await db.collection("users").document(userId).setData([
                     "fcmToken": token,
                     "lastTokenUpdate": FieldValue.serverTimestamp(),
-                    "notificationsEnabled": true
+                    "notificationsEnabled": true,
+                    "platform": "iOS",
+                    "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
                 ], merge: true)
                 
-                print("✅ FCM token updated successfully")
+                print("✅ FCM token updated successfully for user: \(userId)")
+                // Verify token was saved
+                let userData = try await db.collection("users").document(userId).getDocument()
+                print("📱 Debug - Saved user data: \(userData.data() ?? [:])")
             } catch {
                 print("❌ Error updating FCM token: \(error)")
             }

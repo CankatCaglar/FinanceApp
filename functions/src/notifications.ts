@@ -48,7 +48,14 @@ async function sendPushNotification(
   },
 ) {
   try {
-    await admin.messaging().send({
+    console.log("🔄 Attempting to send push notification:", {
+      token: token.substring(0, 10) + "...",
+      title: notification.title,
+      body: notification.body,
+      data: notification.data,
+    });
+
+    const message = {
       token,
       notification: {
         title: notification.title,
@@ -56,7 +63,12 @@ async function sendPushNotification(
       },
       data: notification.data,
       android: {
-        priority: "high",
+        priority: "high" as const,
+        notification: {
+          sound: "default",
+          priority: "high" as const,
+          channelId: "default",
+        },
       },
       apns: {
         payload: {
@@ -65,33 +77,50 @@ async function sendPushNotification(
             sound: "default",
             badge: 1,
             mutableContent: true,
+            priority: 10,
           },
         },
+        headers: {
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+        },
       },
-    });
+    };
+
+    await admin.messaging().send(message);
     console.log("✅ Push notification sent successfully");
   } catch (error: unknown) {
     console.error("❌ Error sending push notification:", error);
+
     // Check if token is invalid
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes("registration-token-not-registered")) {
       console.log("🔄 Token is invalid, removing from user document...");
       // Find and update user document with this token
-      const usersSnapshot = await admin.firestore()
-        .collection("users")
-        .where("fcmToken", "==", token)
-        .get();
+      try {
+        const usersSnapshot = await admin.firestore()
+          .collection("users")
+          .where("fcmToken", "==", token)
+          .get();
 
-      if (!usersSnapshot.empty) {
-        const batch = admin.firestore().batch();
-        usersSnapshot.docs.forEach((doc) => {
-          batch.update(doc.ref, {
-            fcmToken: admin.firestore.FieldValue.delete(),
-            notificationsEnabled: false,
+        if (!usersSnapshot.empty) {
+          const batch = admin.firestore().batch();
+          usersSnapshot.docs.forEach((doc) => {
+            console.log("📱 Removing invalid token for user:", doc.id);
+            batch.update(doc.ref, {
+              fcmToken: admin.firestore.FieldValue.delete(),
+              notificationsEnabled: false,
+              lastTokenError: errorMessage,
+              lastTokenErrorAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
           });
-        });
-        await batch.commit();
-        console.log("✅ Removed invalid token from user document");
+          await batch.commit();
+          console.log("✅ Removed invalid token from user document(s)");
+        } else {
+          console.log("⚠️ No user found with the invalid token");
+        }
+      } catch (dbError) {
+        console.error("❌ Error updating user document:", dbError);
       }
     }
   }

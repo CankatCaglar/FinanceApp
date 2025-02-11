@@ -334,6 +334,7 @@
 				CODE_SIGN_ENTITLEMENTS = Fintrack/Fintrack.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_ASSET_PATHS = "\"Fintrack/Preview Content\"";
 				DEVELOPMENT_TEAM = QCVXKVN58V;
 				ENABLE_PREVIEWS = YES;

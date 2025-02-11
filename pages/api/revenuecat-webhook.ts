@@ -88,25 +88,32 @@ async function updateUserSubscription(
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('📥 Received webhook request');
+
   if (req.method !== "POST") {
+    console.log('❌ Method not allowed:', req.method);
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
     const signature = req.headers["x-revenuecat-signature"];
     if (!signature || Array.isArray(signature)) {
+      console.log('❌ Invalid signature header');
       return res.status(400).json({ error: "Invalid signature header" });
     }
 
     const rawBody = JSON.stringify(req.body);
+    console.log('📦 Request body:', rawBody);
+
     if (!verifyRevenueCatSignature(rawBody, signature)) {
+      console.log('❌ Invalid signature');
       return res.status(401).json({ error: "Invalid signature" });
     }
 
     const event = req.body as RevenueCatEvent;
     const userId = event.event.subscriber.original_app_user_id;
 
-    console.log(`📥 Received RevenueCat webhook: ${event.type} for user ${userId}`);
+    console.log(`📥 Processing RevenueCat webhook: ${event.type} for user ${userId}`);
 
     switch (event.type) {
       case "INITIAL_PURCHASE":
@@ -136,6 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log(`⚠️ Unhandled event type: ${event.type}`);
     }
 
+    console.log('✅ Successfully processed webhook');
     return res.status(200).json({ 
       success: true,
       message: `Successfully processed ${event.type} event for user ${userId}`

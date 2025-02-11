@@ -76,5 +76,9 @@
 	<string>primaryOnly</string>
 	<key>UIRequiresFullScreen~ipad</key>
 	<true/>
+	<key>CFBundleDisplayName</key>
+	<string>FinTrack</string>
+	<key>GIDClientID</key>
+	<string>603894653003-pgrv5k5ugvbvp6emu0p0rpo2ilj1rj2c</string>
 </dict>
 </plist>

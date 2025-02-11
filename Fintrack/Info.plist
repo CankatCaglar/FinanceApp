@@ -76,7 +76,17 @@
 	<true/>
 	<key>CFBundleDisplayName</key>
 	<string>FinTrack</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.finance</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleGetInfoString</key>
+	<string>Track investments and market news</string>
 	<key>GIDClientID</key>
 	<string>603894653003-pgrv5k5ugvbvp6emu0p0rpo2ilj1rj2c</string>
+	<key>Copyright</key>
+	<string>© 2024 Cankat Çağlar. All rights reserved.</string>
 </dict>
 </plist>

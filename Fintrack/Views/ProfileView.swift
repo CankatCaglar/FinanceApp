@@ -259,7 +259,10 @@ struct SettingsMenuContent: View {
                     iconColor: .red,
                     textColor: .red,
                     backgroundColor: backgroundColor,
-                    action: { showingDeleteAccountAlert = true },
+                    action: {
+                        print("Delete Account button tapped")
+                        showingDeleteAccountAlert = true
+                    },
                     showChevron: true
                 )
             }
@@ -268,26 +271,14 @@ struct SettingsMenuContent: View {
         }
         .padding(.horizontal, 2)
         .padding(.top, 20)
-        .alert(isPresented: $showingDeleteAccountAlert) {
-            Alert(
-                title: Text("Delete Account"),
-                message: Text("This action cannot be undone. All your data will be permanently deleted. Please enter your password to confirm."),
-                primaryButton: .destructive(Text("Delete")) {
-                    Task {
-                        do {
-                            // Show password confirmation sheet
-                            activeSheet = .deleteAccount
-                        }
-                    }
-                },
-                secondaryButton: .cancel()
-            )
-        }
-        .sheet(isPresented: Binding(
-            get: { activeSheet == .deleteAccount },
-            set: { if !$0 { activeSheet = nil } }
-        )) {
-            DeleteAccountConfirmationView()
+        .alert("Delete Account", isPresented: $showingDeleteAccountAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                print("Delete confirmed in alert")
+                activeSheet = .deleteAccount
+            }
+        } message: {
+            Text("This action cannot be undone. All your data will be permanently deleted. Please confirm to proceed.")
         }
     }
 }
@@ -659,7 +650,7 @@ struct DeleteAccountConfirmationView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Confirm Password")) {
+                Section(header: Text("Enter your password to confirm account deletion")) {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                         .autocapitalization(.none)
@@ -675,24 +666,30 @@ struct DeleteAccountConfirmationView: View {
                 Section {
                     Button(action: {
                         Task {
+                            print("Delete confirmation button tapped")
                             await deleteAccount()
                         }
                     }) {
-                        if isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle())
-                        } else {
-                            Text("Confirm Delete")
-                                .foregroundColor(.red)
+                        HStack {
+                            Spacer()
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle())
+                            } else {
+                                Text("Delete My Account")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
                         }
                     }
                     .disabled(password.isEmpty || isLoading)
+                    .foregroundColor(.red)
                 }
             }
             .navigationTitle("Delete Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
                     }
@@ -702,18 +699,21 @@ struct DeleteAccountConfirmationView: View {
     }
     
     private func deleteAccount() async {
+        print("Starting account deletion process")
         isLoading = true
         errorMessage = nil
         
         do {
-            // First verify the password
+            print("Verifying password...")
             try await authViewModel.verifyPassword(password)
             
-            // Then delete the account
+            print("Password verified, deleting account...")
             try await authViewModel.deleteAccount()
             
+            print("Account deleted successfully")
             dismiss()
         } catch {
+            print("Error during account deletion: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
         

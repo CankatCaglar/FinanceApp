@@ -31,6 +31,24 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             application.delegate?.window??.overrideUserInterfaceStyle = .light
         }
         
+        // Enable remote notification
+        if #available(iOS 10.0, *) {
+            UNUserNotificationCenter.current().delegate = NotificationManager.shared
+            
+            let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
+            UNUserNotificationCenter.current().requestAuthorization(
+                options: authOptions,
+                completionHandler: { _, _ in }
+            )
+        } else {
+            let settings: UIUserNotificationSettings =
+            UIUserNotificationSettings(types: [.alert, .badge, .sound], categories: nil)
+            application.registerUserNotificationSettings(settings)
+        }
+        
+        // Register for remote notifications
+        application.registerForRemoteNotifications()
+        
         return true
     }
 
@@ -81,8 +99,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     // MARK: - Remote Notifications
     
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        print("📱 Successfully registered for remote notifications with token")
+        
+        // Forward APNS token to FCM
         Messaging.messaging().apnsToken = deviceToken
-        print("📱 APNS token set successfully")
     }
     
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
@@ -91,6 +111,12 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        print("📱 Received remote notification in background")
+        
+        if let messageID = userInfo["gcm.message_id"] {
+            print("📱 Message ID: \(messageID)")
+        }
+        
         AuthViewModel.shared.updateUserActiveStatus()
         completionHandler(.newData)
     }

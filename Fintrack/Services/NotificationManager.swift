@@ -26,37 +26,31 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
     
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         print("📱 FCM token received: \(fcmToken ?? "nil")")
-        print("📱 Debug - Current Auth User: \(Auth.auth().currentUser?.uid ?? "no user")")
+        
         guard let token = fcmToken else {
-            print("❌ Debug - No FCM token available")
-            return
-        }
-        updateFCMToken(token)
-    }
-    
-    private func updateFCMToken(_ token: String) {
-        print("📱 Updating FCM token: \(token)")
-        guard let userId = Auth.auth().currentUser?.uid else {
-            print("❌ No authenticated user found")
+            print("❌ No FCM token available")
             return
         }
         
-        Task {
-            do {
-                try await db.collection("users").document(userId).setData([
-                    "fcmToken": token,
-                    "lastTokenUpdate": FieldValue.serverTimestamp(),
-                    "notificationsEnabled": true,
-                    "platform": "iOS",
-                    "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-                ], merge: true)
-                
-                print("✅ FCM token updated successfully for user: \(userId)")
-                // Verify token was saved
-                let userData = try await db.collection("users").document(userId).getDocument()
-                print("📱 Debug - Saved user data: \(userData.data() ?? [:])")
-            } catch {
-                print("❌ Error updating FCM token: \(error)")
+        // Save token to UserDefaults
+        UserDefaults.standard.set(token, forKey: "fcmToken")
+        
+        // Update Firestore if user is authenticated
+        if let userId = Auth.auth().currentUser?.uid {
+            Task {
+                do {
+                    try await db.collection("users").document(userId).setData([
+                        "fcmToken": token,
+                        "lastTokenUpdate": FieldValue.serverTimestamp(),
+                        "notificationsEnabled": true,
+                        "platform": "iOS",
+                        "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+                    ], merge: true)
+                    
+                    print("✅ FCM token updated successfully for user: \(userId)")
+                } catch {
+                    print("❌ Error updating FCM token: \(error)")
+                }
             }
         }
     }
@@ -126,9 +120,23 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
         if settings.authorizationStatus == .authorized {
             await MainActor.run {
                 isNotificationsEnabled = true
-                UIApplication.shared.registerForRemoteNotifications()
-                // Reset badge count on setup
+                // Don't call registerForRemoteNotifications here, it's handled in AppDelegate
+            }
+            
+            // Reset badge count on setup
+            await MainActor.run {
                 UIApplication.shared.applicationIconBadgeNumber = 0
+            }
+            
+            // Update FCM token in Firestore if available
+            if let token = try? await Messaging.messaging().token() {
+                if let userId = Auth.auth().currentUser?.uid {
+                    try? await db.collection("users").document(userId).setData([
+                        "fcmToken": token,
+                        "notificationsEnabled": true,
+                        "lastTokenUpdate": FieldValue.serverTimestamp()
+                    ], merge: true)
+                }
             }
         } else {
             print("📱 Requesting notification authorization")
@@ -136,9 +144,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             if granted == true {
                 await MainActor.run {
                     isNotificationsEnabled = true
-                    UIApplication.shared.registerForRemoteNotifications()
-                    // Reset badge count on setup
-                    UIApplication.shared.applicationIconBadgeNumber = 0
+                    // Don't call registerForRemoteNotifications here
                 }
             }
         }
@@ -161,7 +167,7 @@ class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterD
             
             if granted {
                 await MainActor.run {
-                    UIApplication.shared.registerForRemoteNotifications()
+                    // Don't call registerForRemoteNotifications here
                 }
             }
             

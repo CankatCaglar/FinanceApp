@@ -8,7 +8,11 @@
     "strict": true,
     "target": "es2017",
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "types": ["node"],
+    "lib": ["es2017", "dom"]
   },
   "compileOnSave": true,
   "include": [

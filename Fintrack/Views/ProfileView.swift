@@ -189,6 +189,7 @@ struct SettingsMenuContent: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @Environment(\.openURL) var openURL
     @Environment(\.colorScheme) private var colorScheme
+    @State private var showingDeleteAccountAlert = false
     
     var body: some View {
         VStack(spacing: 8) {
@@ -247,12 +248,39 @@ struct SettingsMenuContent: View {
                     action: { showingSignOutAlert = true },
                     showChevron: true
                 )
+                
+                // Delete Account Button
+                MenuButton(
+                    icon: "trash",
+                    title: "Delete Account",
+                    iconColor: .red,
+                    textColor: .red,
+                    backgroundColor: backgroundColor,
+                    action: { showingDeleteAccountAlert = true },
+                    showChevron: false
+                )
             }
             .background(Color(UIColor.systemBackground))
             .cornerRadius(12)
         }
         .padding(.horizontal, 2)
         .padding(.top, 20)
+        .alert(isPresented: $showingDeleteAccountAlert) {
+            Alert(
+                title: Text("Delete Account"),
+                message: Text("Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently deleted."),
+                primaryButton: .destructive(Text("Delete")) {
+                    Task {
+                        do {
+                            try await authViewModel.deleteAccount()
+                        } catch {
+                            print("Error deleting account: \(error)")
+                        }
+                    }
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 }
 
@@ -609,6 +637,60 @@ struct AboutView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+extension AuthViewModel {
+    func deleteAccount() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user found"])
+        }
+        
+        do {
+            // Clear notifications
+            await NotificationManager.shared.clearNotificationSetup()
+            
+            // Delete user data from Firestore
+            let batch = db.batch()
+            
+            // Delete user document
+            batch.deleteDocument(db.collection("users").document(user.uid))
+            
+            // Delete subscriptions document
+            batch.deleteDocument(db.collection("subscriptions").document(user.uid))
+            
+            // Delete portfolio collection
+            let portfolioSnapshot = try await db.collection("users").document(user.uid).collection("portfolio").getDocuments()
+            for doc in portfolioSnapshot.documents {
+                batch.deleteDocument(doc.reference)
+            }
+            
+            // Commit the batch
+            try await batch.commit()
+            
+            // Delete profile photo from local storage
+            deleteImageFromFile(userId: user.uid)
+            
+            // Delete the Firebase Auth user
+            try await user.delete()
+            
+            // Clear local state
+            await MainActor.run {
+                self.currentUser = nil
+                self.userSession = nil
+                self.firebaseUser = nil
+                self.isAuthenticated = false
+                self.profileImage = nil
+            }
+            
+            // Clear UserDefaults
+            UserDefaults.standard.removeObject(forKey: "fcmToken")
+            
+            print("👤 User account deleted successfully")
+        } catch {
+            print("❌ Error deleting account: \(error)")
+            throw error
         }
     }
 } 

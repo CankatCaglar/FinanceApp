@@ -651,17 +651,22 @@ extension AuthViewModel {
             // Clear notifications
             await NotificationManager.shared.clearNotificationSetup()
             
+            // Get Firestore reference
+            let firestore = Firestore.firestore()
+            
             // Delete user data from Firestore
-            let batch = db.batch()
+            let batch = firestore.batch()
             
             // Delete user document
-            batch.deleteDocument(db.collection("users").document(user.uid))
+            let userRef = firestore.collection("users").document(user.uid)
+            batch.deleteDocument(userRef)
             
             // Delete subscriptions document
-            batch.deleteDocument(db.collection("subscriptions").document(user.uid))
+            let subscriptionRef = firestore.collection("subscriptions").document(user.uid)
+            batch.deleteDocument(subscriptionRef)
             
             // Delete portfolio collection
-            let portfolioSnapshot = try await db.collection("users").document(user.uid).collection("portfolio").getDocuments()
+            let portfolioSnapshot = try await firestore.collection("users").document(user.uid).collection("portfolio").getDocuments()
             for doc in portfolioSnapshot.documents {
                 batch.deleteDocument(doc.reference)
             }
@@ -670,7 +675,16 @@ extension AuthViewModel {
             try await batch.commit()
             
             // Delete profile photo from local storage
-            deleteImageFromFile(userId: user.uid)
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let imageURL = documentsDirectory.appendingPathComponent("profile_\(user.uid).jpg")
+            if FileManager.default.fileExists(atPath: imageURL.path) {
+                try FileManager.default.removeItem(at: imageURL)
+                print("✅ Deleted profile photo from file system")
+            }
+            
+            // Remove from UserDefaults
+            UserDefaults.standard.removeObject(forKey: "userProfilePhotoData_\(user.uid)")
+            print("✅ Cleared profile photo data from UserDefaults")
             
             // Delete the Firebase Auth user
             try await user.delete()

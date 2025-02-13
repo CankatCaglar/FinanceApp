@@ -10,6 +10,8 @@ struct PortfolioView: View {
     @State private var quantity = ""
     @State private var assetToDelete: PortfolioAsset? = nil
     @State private var showingDeleteAlert = false
+    @State private var selectedChartPage = 0
+    @State private var selectedTimeRange: TimeRange = .allTime
     
     private var backgroundColor: Color {
         colorScheme == .dark ? .black : .white
@@ -40,21 +42,48 @@ struct PortfolioView: View {
                 .padding(.top, 20)
                 
                 if !viewModel.portfolioAssets.isEmpty {
-                    // Portfolio Distribution Chart
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Chart
-                        PortfolioDistributionChart(assets: viewModel.portfolioAssets, colorForIndex: assetColor)
-                            .frame(height: 200)
-                            .padding(.horizontal)
+                    TabView(selection: $selectedChartPage) {
+                        // Value Chart
+                        VStack(alignment: .leading, spacing: 4) {
+                            TimeRangeSelectorView(selectedTimeRange: $selectedTimeRange)
+                                .padding(.bottom, -8)
+                            
+                            PortfolioValueChart(
+                                portfolioHistory: viewModel.portfolioHistory,
+                                selectedTimeRange: $selectedTimeRange
+                            )
+                            .frame(height: 280)
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { _ in }
+                            )
+                        }
+                        .padding(.horizontal)
+                        .tag(0)
+                        
+                        // Distribution Chart
+                        VStack(alignment: .leading, spacing: 8) {
+                            PortfolioDistributionChart(assets: viewModel.portfolioAssets, colorForIndex: assetColor)
+                                .frame(height: 280)
+                                .gesture(
+                                    DragGesture()
+                                        .onChanged { _ in }
+                                )
+                        }
+                        .padding(.horizontal)
+                        .tag(1)
                     }
-                    .padding(.bottom, 16)
+                    .tabViewStyle(.page(indexDisplayMode: .always))
+                    .frame(height: 320)
+                    .padding(.bottom, -16)
                     
                     // Assets List
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Your Assets")
                             .font(.title2)
                             .fontWeight(.bold)
                             .padding(.horizontal, 20)
+                            .padding(.top, -12)
                         
                         LazyVStack(spacing: 8) {
                             ForEach(viewModel.portfolioAssets.sorted { $0.currentValue > $1.currentValue }) { asset in

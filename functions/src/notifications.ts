@@ -1,6 +1,7 @@
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import axios from "axios";
 
 // Type definitions
 interface User {
@@ -282,12 +283,13 @@ export const checkAssetPriceChanges = onSchedule(
   },
   async () => {
     try {
-      console.log("🔄 Starting asset price check at:", new Date().toISOString());
+      console.log("🔄 Starting popular asset price check at:", new Date().toISOString());
 
       // Get all users with notifications enabled
       const users = await admin.firestore()
         .collection("users")
         .where("notificationsEnabled", "==", true)
+        .where("fcmToken", "!=", null)
         .get();
 
       if (users.empty) {
@@ -295,11 +297,28 @@ export const checkAssetPriceChanges = onSchedule(
         return;
       }
 
+      console.log(`📱 Found ${users.size} users with notifications enabled`);
+
+      // Get popular assets first
+      const popularAssets = await admin.firestore()
+        .collection("popularAssets")
+        .get();
+
+      if (popularAssets.empty) {
+        console.log("ℹ️ No popular assets found");
+        return;
+      }
+
+      console.log(`📊 Found ${popularAssets.size} popular assets`);
+
       // Process each user
       for (const user of users.docs) {
         try {
           const userData = user.data() as User;
-          if (!userData.fcmToken) continue;
+          if (!userData.fcmToken) {
+            console.log(`⚠️ User ${user.id} has no FCM token`);
+            continue;
+          }
 
           // Get user's portfolio assets
           const portfolioAssets = await admin.firestore()
@@ -308,10 +327,7 @@ export const checkAssetPriceChanges = onSchedule(
             .collection("portfolio")
             .get();
 
-          // Get popular assets
-          const popularAssets = await admin.firestore()
-            .collection("popularAssets")
-            .get();
+          console.log(`📈 Found ${portfolioAssets.size} portfolio assets for user ${user.id}`);
 
           // Combine and deduplicate assets
           const assetsToCheck = new Map<string, Asset>();
@@ -338,6 +354,8 @@ export const checkAssetPriceChanges = onSchedule(
             }
           });
 
+          console.log(`🔍 Checking price changes for ${assetsToCheck.size} assets`);
+
           // Check price changes and prepare notifications
           const notifications: Array<{
             symbol: string;
@@ -348,31 +366,61 @@ export const checkAssetPriceChanges = onSchedule(
           }> = [];
 
           for (const [symbol, asset] of assetsToCheck) {
-            // Get current price from your price data source
-            const priceDoc = await admin.firestore()
-              .collection("prices")
-              .doc(symbol)
-              .get();
+            try {
+              // Get current price from your price data source
+              const priceDoc = await admin.firestore()
+                .collection("prices")
+                .doc(symbol)
+                .get();
 
-            if (!priceDoc.exists) continue;
+              if (!priceDoc.exists) {
+                console.log(`⚠️ No price data found for ${symbol}`);
+                continue;
+              }
 
-            const currentPrice = priceDoc.data()?.price || 0;
-            const lastPrice = asset.currentPrice || currentPrice;
+              const priceData = priceDoc.data();
+              if (!priceData?.price || !priceData?.lastUpdated) {
+                console.log(`⚠️ Invalid price data for ${symbol}`);
+                continue;
+              }
 
-            // Calculate price change percentage
-            const changePercent = ((currentPrice - lastPrice) / lastPrice) * 100;
+              // Check if price data is stale (older than 1 hour)
+              const lastUpdated = priceData.lastUpdated.toDate();
+              if (Date.now() - lastUpdated.getTime() > 60 * 60 * 1000) {
+                console.log(
+                  `⚠️ Stale price data for ${symbol}, last updated: ${lastUpdated.toISOString()}`
+                );
+                continue;
+              }
 
-            // If change is more than 5% (up or down), add to notifications
-            if (Math.abs(changePercent) >= 5) {
-              notifications.push({
-                symbol,
-                name: asset.name,
-                change: Math.abs(changePercent),
-                direction: changePercent > 0 ? "up" : "down",
-                price: currentPrice,
-              });
+              const currentPrice = priceData.price;
+              const lastPrice = asset.currentPrice || currentPrice;
+
+              // Calculate price change percentage
+              const changePercent = ((currentPrice - lastPrice) / lastPrice) * 100;
+
+              console.log(
+                `📊 ${symbol}: Current: $${currentPrice}, Last: $${lastPrice}, ` +
+                `Change: ${changePercent.toFixed(2)}%`
+              );
+
+              // If change is more than 5% (up or down), add to notifications
+              if (Math.abs(changePercent) >= 5) {
+                notifications.push({
+                  symbol,
+                  name: asset.name,
+                  change: Math.abs(changePercent),
+                  direction: changePercent > 0 ? "up" : "down",
+                  price: currentPrice,
+                });
+              }
+            } catch (error) {
+              console.error(`❌ Error processing asset ${symbol}:`, error);
+              continue;
             }
           }
+
+          console.log(`📬 Preparing to send ${notifications.length} notifications to user ${user.id}`);
 
           // Send notifications with 1 second delay between each
           for (let i = 0; i < notifications.length; i++) {
@@ -383,35 +431,14 @@ export const checkAssetPriceChanges = onSchedule(
               await new Promise((resolve) => setTimeout(resolve, 1000));
             }
 
-            // Get current badge count
-            const userDoc = await admin.firestore()
-              .collection("users")
-              .doc(user.id)
-              .get();
+            const emoji = notification.direction === "up" ? "📈" : "📉";
+            const title = `${emoji} ${notification.symbol} Price Alert`;
+            const body = `${notification.name} has moved ${notification.direction} ` +
+              `by ${notification.change.toFixed(2)}% (Price: $${notification.price.toFixed(2)})`;
 
-            const currentBadge = userDoc.data()?.badgeCount || 0;
-            const newBadgeCount = currentBadge + 1;
-
-            // Update badge count in Firestore
-            await admin.firestore()
-              .collection("users")
-              .doc(user.id)
-              .update({
-                badgeCount: newBadgeCount,
-                lastNotificationAt: admin.firestore.Timestamp.now(),
-              });
-
-            // Send notification
-            await admin.messaging().send({
-              token: userData.fcmToken,
-              notification: {
-                title: `${notification.symbol} Price Alert 📊`,
-                body: [
-                  `${notification.name} has moved ${notification.direction}`,
-                  `by ${notification.change.toFixed(2)}%`,
-                  `(Price: $${notification.price.toFixed(2)})`,
-                ].join(" "),
-              },
+            const notificationPayload = {
+              title,
+              body,
               data: {
                 type: "PRICE_CHANGE",
                 symbol: notification.symbol,
@@ -419,23 +446,16 @@ export const checkAssetPriceChanges = onSchedule(
                 direction: notification.direction,
                 change: notification.change.toString(),
                 price: notification.price.toString(),
+                action: "VIEW_ASSET",
               },
-              android: {
-                priority: "high",
-              },
-              apns: {
-                payload: {
-                  aps: {
-                    contentAvailable: true,
-                    sound: "default",
-                    badge: newBadgeCount,
-                    mutableContent: true,
-                  },
-                },
-              },
-            });
+            };
 
-            console.log(`✅ Sent price alert for ${notification.symbol} to user ${user.id}`);
+            try {
+              await sendPushNotification(userData.fcmToken, notificationPayload);
+              console.log(`✅ Price alert sent for ${notification.symbol} to user ${user.id}`);
+            } catch (error) {
+              console.error(`❌ Error sending price alert for ${notification.symbol}:`, error);
+            }
           }
         } catch (error) {
           console.error(`❌ Error processing user ${user.id}:`, error);
@@ -451,105 +471,137 @@ export const checkAssetPriceChanges = onSchedule(
 );
 
 /**
- * Sends price change alerts every 24 hours for significant changes (>5%).
+ * Syncs popular asset prices every 5 minutes.
  */
-export const sendPriceAlerts = onSchedule(
+export const syncPopularAssets = onSchedule(
   {
-    schedule: "0 0 * * *", // Run at 00:00 UTC every day
+    schedule: "*/5 * * * *", // Run every 5 minutes
     memory: "256MiB",
     timeZone: "UTC",
     retryCount: 3,
     maxInstances: 1,
     labels: {
-      job: "price-alerts",
+      job: "sync-popular-assets",
     },
   },
   async () => {
     try {
-      console.log("🔄 Starting daily price change check...");
+      console.log("🔄 Starting popular assets sync at:", new Date().toISOString());
+      // Popular crypto symbols
+      const cryptoSymbols = ["BTC", "ETH", "USDT", "XRP", "BNB", "SOL", "USDC", "DOGE"];
+      // Popular stock symbols
+      const stockSymbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "WMT"];
 
-      // Get all assets
-      const assetsSnapshot = await admin.firestore()
-        .collection("assets")
-        .get();
+      // Batch for Firestore updates
+      const batch = admin.firestore().batch();
 
-      const significantChanges: Array<{
-        symbol: string;
-        name: string;
-        priceChange: number;
-        currentPrice: number;
-      }> = [];
+      // Sync crypto prices
+      for (const symbol of cryptoSymbols) {
+        try {
+          const response = await axios.get(
+            "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest",
+            {
+              params: {
+                symbol: symbol,
+                convert: "USD",
+              },
+              headers: {
+                "X-CMC_PRO_API_KEY": process.env.COINMARKETCAP_API_KEY,
+              },
+            }
+          );
 
-      // Check each asset for significant price changes
-      assetsSnapshot.forEach((doc) => {
-        const asset = doc.data() as Asset;
-        if (!asset.currentPrice || !asset.lastPrice) return;
+          if (response.data?.data?.[symbol]) {
+            const crypto = response.data.data[symbol];
+            const usdQuote = crypto.quote.USD;
 
-        const priceChange = ((asset.currentPrice - asset.lastPrice) / asset.lastPrice) * 100;
+            const assetRef = admin.firestore()
+              .collection("popularAssets")
+              .doc(symbol);
 
-        // If price change is more than 5% (positive or negative)
-        if (Math.abs(priceChange) >= 5) {
-          significantChanges.push({
-            symbol: asset.symbol,
-            name: asset.name,
-            priceChange: priceChange,
-            currentPrice: asset.currentPrice,
-          });
-        }
-      });
+            batch.set(assetRef, {
+              symbol: symbol,
+              name: crypto.name,
+              type: "crypto",
+              currentPrice: usdQuote.price,
+              lastPrice: (await assetRef.get()).data()?.currentPrice || usdQuote.price,
+              priceChangePercentage24H: usdQuote.percent_change_24h,
+              marketCap: usdQuote.market_cap,
+              volume24H: usdQuote.volume_24h,
+              lastUpdated: admin.firestore.Timestamp.now(),
+            }, {merge: true});
 
-      if (significantChanges.length === 0) {
-        console.log("No significant price changes found");
-        return;
-      }
-
-      console.log(`Found ${significantChanges.length} assets with significant price changes`);
-
-      // Get all users with notifications enabled
-      const users = await admin.firestore()
-        .collection("users")
-        .where("notificationsEnabled", "==", true)
-        .where("fcmToken", "!=", null)
-        .get();
-
-      // Send notifications to each user
-      for (const user of users.docs) {
-        const userData = user.data() as User;
-        if (!userData.fcmToken) continue;
-
-        // Create notification for each significant change
-        for (const change of significantChanges) {
-          const direction = change.priceChange > 0 ? "increased" : "decreased";
-          const emoji = change.priceChange > 0 ? "📈" : "📉";
-
-          const notification = {
-            title: `${emoji} ${change.symbol} Price Alert`,
-            body: `${change.name} has ${direction} by ${Math.abs(change.priceChange).toFixed(2)}% ` +
-              `in the last 24 hours. Current price: $${change.currentPrice.toFixed(2)}`,
-            data: {
-              type: "PRICE_ALERT",
-              action: "VIEW_ASSET",
-              symbol: change.symbol,
-              priceChange: change.priceChange.toString(),
-              currentPrice: change.currentPrice.toString(),
-            },
-          };
-
-          try {
-            await sendPushNotification(userData.fcmToken, notification);
-            console.log(`✅ Price alert sent for ${change.symbol} to user ${user.id}`);
-          } catch (error) {
-            console.error(`❌ Error sending price alert for ${change.symbol}:`, error);
+            console.log(`✅ Updated crypto price for ${symbol}: $${usdQuote.price}`);
           }
-
-          // Add a small delay between notifications to prevent rate limiting
-          await new Promise((resolve) => setTimeout(resolve, 100));
+        } catch (error) {
+          console.error(`❌ Error updating crypto ${symbol}:`, error);
+          continue;
         }
       }
 
-      console.log("✅ Price alert notifications completed");
+      // Sync stock prices
+      for (const symbol of stockSymbols) {
+        try {
+          const response = await axios.get(
+            "https://finnhub.io/api/v1/quote",
+            {
+              params: {
+                symbol: symbol,
+                token: process.env.FINNHUB_API_KEY,
+              },
+            }
+          );
+
+          if (response.data?.c) { // Current price
+            const stock = response.data;
+            const assetRef = admin.firestore()
+              .collection("popularAssets")
+              .doc(symbol);
+
+            const priceChange24H = ((stock.c - stock.pc) / stock.pc) * 100;
+
+            batch.set(assetRef, {
+              symbol: symbol,
+              type: "stock",
+              currentPrice: stock.c,
+              lastPrice: (await assetRef.get()).data()?.currentPrice || stock.c,
+              priceChangePercentage24H: priceChange24H,
+              high24H: stock.h,
+              low24H: stock.l,
+              lastUpdated: admin.firestore.Timestamp.now(),
+            }, {merge: true});
+
+            console.log(`✅ Updated stock price for ${symbol}: $${stock.c}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error updating stock ${symbol}:`, error);
+          continue;
+        }
+      }
+
+      // Commit all updates
+      await batch.commit();
+      console.log("✅ Successfully synced all popular asset prices");
+
+      // Update sync status
+      await admin.firestore()
+        .collection("system")
+        .doc("priceSync")
+        .set({
+          lastSync: admin.firestore.Timestamp.now(),
+          status: "success",
+        }, {merge: true});
     } catch (error) {
-      console.error("❌ Error in price alert process:", error);
+      console.error("❌ Error syncing popular assets:", error);
+      // Update sync status on error
+      await admin.firestore()
+        .collection("system")
+        .doc("priceSync")
+        .set({
+          lastSync: admin.firestore.Timestamp.now(),
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+        }, {merge: true});
     }
   },
 );

@@ -66,6 +66,17 @@ function getFinnhubCategory(category: string, headline = "", source = ""): strin
     "coinbase",
     "binance",
     "cryptoslate",
+    "bitcoinist",
+    "cryptopotato",
+    "newsbtc",
+    "beincrypto",
+    "cryptodaily",
+    "ambcrypto",
+    "cryptobriefing",
+    "coingape",
+    "u.today",
+    "zycrypto",
+    "protos.com",
   ];
 
   // Crypto-related keywords
@@ -89,6 +100,25 @@ function getFinnhubCategory(category: string, headline = "", source = ""): strin
     "dao",
     "dex",
     "wallet",
+    "solana",
+    "cardano",
+    "ripple",
+    "xrp",
+    "dogecoin",
+    "doge",
+    "shiba",
+    "metamask",
+    "airdrop",
+    "yield farming",
+    "smart contract",
+    "layer 2",
+    "l2",
+    "polygon",
+    "chainlink",
+    "defi protocol",
+    "crypto exchange",
+    "memecoin",
+    "tokenomics",
   ];
 
   // Check if the source is a crypto news source
@@ -110,11 +140,11 @@ function getFinnhubCategory(category: string, headline = "", source = ""): strin
 }
 
 /**
- * Syncs news every 5 minutes from Finnhub API.
+ * Syncs news every 10 minutes from Finnhub API.
  */
 export const syncNews = onSchedule(
   {
-    schedule: "*/5 * * * *",
+    schedule: "*/10 * * * *",
     memory: "256MiB",
     timeZone: "UTC",
     retryCount: 3,
@@ -131,8 +161,8 @@ export const syncNews = onSchedule(
         new Date(now.toMillis() - 24 * 60 * 60 * 1000),
       );
 
-      // Categories to fetch
-      const categories = ["crypto", "general", "forex", "merger", "business"];
+      // Categories to fetch - prioritize crypto by listing it first and multiple times
+      const categories = ["crypto", "crypto", "general", "forex", "merger", "business", "crypto"];
       const allArticles: FinnhubNewsResponse[] = [];
 
       // Fetch news for each category

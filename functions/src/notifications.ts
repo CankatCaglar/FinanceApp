@@ -449,3 +449,107 @@ export const checkAssetPriceChanges = onSchedule(
     }
   },
 );
+
+/**
+ * Sends price change alerts every 24 hours for significant changes (>5%).
+ */
+export const sendPriceAlerts = onSchedule(
+  {
+    schedule: "0 0 * * *", // Run at 00:00 UTC every day
+    memory: "256MiB",
+    timeZone: "UTC",
+    retryCount: 3,
+    maxInstances: 1,
+    labels: {
+      job: "price-alerts",
+    },
+  },
+  async () => {
+    try {
+      console.log("🔄 Starting daily price change check...");
+
+      // Get all assets
+      const assetsSnapshot = await admin.firestore()
+        .collection("assets")
+        .get();
+
+      const significantChanges: Array<{
+        symbol: string;
+        name: string;
+        priceChange: number;
+        currentPrice: number;
+      }> = [];
+
+      // Check each asset for significant price changes
+      assetsSnapshot.forEach((doc) => {
+        const asset = doc.data() as Asset;
+        if (!asset.currentPrice || !asset.lastPrice) return;
+
+        const priceChange = ((asset.currentPrice - asset.lastPrice) / asset.lastPrice) * 100;
+
+        // If price change is more than 5% (positive or negative)
+        if (Math.abs(priceChange) >= 5) {
+          significantChanges.push({
+            symbol: asset.symbol,
+            name: asset.name,
+            priceChange: priceChange,
+            currentPrice: asset.currentPrice,
+          });
+        }
+      });
+
+      if (significantChanges.length === 0) {
+        console.log("No significant price changes found");
+        return;
+      }
+
+      console.log(`Found ${significantChanges.length} assets with significant price changes`);
+
+      // Get all users with notifications enabled
+      const users = await admin.firestore()
+        .collection("users")
+        .where("notificationsEnabled", "==", true)
+        .where("fcmToken", "!=", null)
+        .get();
+
+      // Send notifications to each user
+      for (const user of users.docs) {
+        const userData = user.data() as User;
+        if (!userData.fcmToken) continue;
+
+        // Create notification for each significant change
+        for (const change of significantChanges) {
+          const direction = change.priceChange > 0 ? "increased" : "decreased";
+          const emoji = change.priceChange > 0 ? "📈" : "📉";
+
+          const notification = {
+            title: `${emoji} ${change.symbol} Price Alert`,
+            body: `${change.name} has ${direction} by ${Math.abs(change.priceChange).toFixed(2)}% ` +
+              `in the last 24 hours. Current price: $${change.currentPrice.toFixed(2)}`,
+            data: {
+              type: "PRICE_ALERT",
+              action: "VIEW_ASSET",
+              symbol: change.symbol,
+              priceChange: change.priceChange.toString(),
+              currentPrice: change.currentPrice.toString(),
+            },
+          };
+
+          try {
+            await sendPushNotification(userData.fcmToken, notification);
+            console.log(`✅ Price alert sent for ${change.symbol} to user ${user.id}`);
+          } catch (error) {
+            console.error(`❌ Error sending price alert for ${change.symbol}:`, error);
+          }
+
+          // Add a small delay between notifications to prevent rate limiting
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      console.log("✅ Price alert notifications completed");
+    } catch (error) {
+      console.error("❌ Error in price alert process:", error);
+    }
+  },
+);

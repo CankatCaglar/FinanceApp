@@ -31,7 +31,11 @@ struct AddAssetSheet: View {
     }
     
     private var buttonBackgroundColor: Color {
-        Color.white
+        colorScheme == .dark ? Color.white : Color.black
+    }
+    
+    private var buttonTextColor: Color {
+        colorScheme == .dark ? .black : .white
     }
     
     private func formatPrice(_ price: Double) -> String {
@@ -221,7 +225,7 @@ struct AddAssetSheet: View {
                     }) {
                         Text("Add to Portfolio")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
+                            .foregroundColor(buttonTextColor)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(isValid ? buttonBackgroundColor : Color(uiColor: .systemGray5))

@@ -23,10 +23,6 @@ FinTrack is a modern iOS application designed to help users track their financia
   - Combine Framework
   - RESTful APIs
 
-## Screenshots
-
-[Screenshots will be added soon]
-
 ## Requirements
 
 - iOS 15.0+
